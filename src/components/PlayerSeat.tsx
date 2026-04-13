@@ -107,7 +107,12 @@ export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown,
            {player.name} {isMe && <span className="text-emerald-400/60">(You)</span>}
         </p>
         
-        <p className="text-poker-gold font-mono font-bold text-sm mt-0.5 tracking-wide">
+        <p className={clsx(
+          "font-mono font-bold text-sm mt-0.5 tracking-wide transition-all",
+          isMe
+            ? "text-poker-gold"                         // 自己：正常高亮
+            : "text-poker-gold/50 text-xs font-medium"  // 他人：弱化
+        )}>
           ${player.chips.toLocaleString()}
         </p>
 
