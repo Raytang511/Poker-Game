@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
 import PlayerSeat from './PlayerSeat';
 import Card from './Card';
+import { usePokerSounds } from '../hooks/usePokerSounds';
+import { initAudio, soundEffects } from '../lib/audio';
 import clsx from 'clsx';
 import { GameState } from '../game/types';
 
