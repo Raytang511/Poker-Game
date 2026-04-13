@@ -18,6 +18,7 @@ interface StoreState {
   gameState: GameState | null;
   engine: GameStateEngine | null;
   channel: RealtimeChannel | null;
+  isHost: boolean;
   
   initAuth: () => void;
   loginLocalMock: (name: string) => void;
@@ -35,6 +36,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
   gameState: null,
   engine: null,
   channel: null,
+  isHost: false,
   
   initAuth: () => {
      // 监听实际的 Supabase Auth 状态
@@ -63,64 +65,98 @@ export const useGameStore = create<StoreState>((set, get) => ({
     const user = get().user;
     if (!user) return;
     
-    // 初始化本地引擎实例（以防万一是首个创建房间的 Host）
-    const engine = new GameStateEngine(undefined, room.sb, room.bb);
-    engine.addPlayer({ id: user.id, name: user.name, chips: 10000, seat: 0 });
-
-    try { engine.startNewHand(); } catch (e) {}
+    // 初始化时认定自己是 Client，清除过往引擎
+    set({ currentRoom: room, gameState: null, engine: null, channel: null, isHost: false });
     
-    // 初始化 Supabase Realtime 通道
     const channel = supabase.channel(`room:${room.id}`, {
-      config: { broadcast: { self: true, ack: true } }
+      config: { broadcast: { self: false, ack: true } }
     });
     
+    let isInitialized = false;
+
     channel
       .on('broadcast', { event: 'gameStateUpdate' }, ({ payload }) => {
-         console.log('Received Game State Update', payload);
-         // 同步他人的状态
+         const me = get().user;
+         isInitialized = true;
+         // 解决脑裂：如果两个玩家互相都以为自己是 Host，ID 字母顺序小的自动退位
+         if (get().isHost && payload.hostId !== me?.id) {
+             if (payload.hostId < (me?.id || "")) {
+                 console.log("退位让给:", payload.hostId);
+                 set({ isHost: false, engine: null });
+             } else {
+                 channel.send({ type: 'broadcast', event: 'gameStateUpdate', payload: { gameState: get().engine?.getState(), hostId: me?.id }});
+                 return;
+             }
+         }
          set({ gameState: payload.gameState });
-         // Host 可见，如果我们在真实环境里，我们会替换本地 engine 的状态
+      })
+      .on('broadcast', { event: 'PLAYER_JOIN' }, ({ payload }) => {
+         const { isHost, engine, user: me } = get();
+         if (isHost && engine) {
+            // 自动为新加入的玩家分配一个空座
+            const state = engine.getState();
+            const used = state.players.map((p: any) => p.seat);
+            const seat = [0,1,2,3,4,5,6,7].find(s => !used.includes(s));
+            if (seat !== undefined && !state.players.find((p:any) => p.id === payload.player.id)) {
+               try {
+                   engine.addPlayer({ ...payload.player, seat });
+                   channel.send({ type: 'broadcast', event: 'gameStateUpdate', payload: { gameState: engine.getState(), hostId: me?.id }});
+               } catch (e) { console.error(e) }
+            }
+         }
+      })
+      .on('broadcast', { event: 'ACTION_INTENT' }, ({ payload }) => {
+         const { isHost, engine, user: me } = get();
+         if (isHost && engine) {
+            try {
+               engine.processAction(payload.userId, payload.action, payload.amount);
+               channel.send({ type: 'broadcast', event: 'gameStateUpdate', payload: { gameState: engine.getState(), hostId: me?.id }});
+            } catch (e) { console.error(e) }
+         }
       })
       .subscribe((status) => {
          if (status === 'SUBSCRIBED') {
             console.log("已通过 Supabase 连接到 Realtime 大厅:", room.id);
-            // 这里如果是真正的去中心化，可以广播自己加入的信息：
-            // channel.send({ type: 'broadcast', event: 'playerJoined', payload: { player: user } })
+            // 广播我加入的请求
+            channel.send({ type: 'broadcast', event: 'PLAYER_JOIN', payload: { player: { id: user.id, name: user.name, chips: user.chips } } });
+            
+            // 如果 1.5 秒内没有收到权威的 state，我就宣誓成为 Host，由我来发牌！
+            setTimeout(() => {
+               if (!isInitialized) {
+                  console.log("房间空无一人，我晋升为房主 (Host)。");
+                  const engine = new GameStateEngine(undefined, room.sb, room.bb);
+                  engine.addPlayer({ id: user.id, name: user.name, chips: user.chips, seat: 0 });
+                  try { engine.startNewHand(); } catch (e) {}
+                  set({ isHost: true, engine, gameState: engine.getState() });
+                  channel.send({ type: 'broadcast', event: 'gameStateUpdate', payload: { gameState: engine.getState(), hostId: user.id }});
+               }
+            }, 1500);
          }
       });
     
-    set({ currentRoom: room, engine, channel, gameState: { ...engine.getState() } });
+    set({ channel });
   },
   
   leaveRoom: () => {
     const channel = get().channel;
     if (channel) channel.unsubscribe();
-    set({ currentRoom: null, engine: null, gameState: null, channel: null });
+    set({ currentRoom: null, engine: null, gameState: null, channel: null, isHost: false });
   },
   
   performAction: (action, amount) => {
-    const { engine, user, channel } = get();
-    if (!engine || !user) return;
+    const { engine, user, channel, isHost } = get();
+    if (!user || !channel) return;
     
-    try {
-      // 1. 本地引擎执行动作
-      engine.processAction(user.id, action, amount);
-      const newState = { ...engine.getState() };
-      
-      // 2. 更新本地 UI
-      set({ gameState: newState });
-      
-      // 3. 将新的游戏状态广播给同房间其他玩家
-      if (channel) {
-         channel.send({
-            type: 'broadcast',
-            event: 'gameStateUpdate',
-            payload: { gameState: newState }
-         });
-      }
-      
-    } catch (e: any) {
-      alert(e.message);
+    if (isHost && engine) {
+       try {
+         engine.processAction(user.id, action, amount);
+         const newState = { ...engine.getState() };
+         set({ gameState: newState });
+         channel.send({ type: 'broadcast', event: 'gameStateUpdate', payload: { gameState: newState, hostId: user.id } });
+       } catch(e: any) { alert(e.message); }
+    } else {
+       // 我是房客，把我的操作意愿发给房主代为运算
+       channel.send({ type: 'broadcast', event: 'ACTION_INTENT', payload: { userId: user.id, action, amount }});
     }
   },
 
