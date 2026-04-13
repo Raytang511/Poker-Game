@@ -1,3 +1,5 @@
+import React, { useState, useEffect } from 'react';
+import { useGameStore } from '../store/useGameStore';
 import PlayerSeat from './PlayerSeat';
 import Card from './Card';
 import { usePokerSounds } from '../hooks/usePokerSounds';
@@ -8,6 +10,15 @@ import { GameState } from '../game/types';
 export default function PokerTable() {
   const { gameState, user, performAction } = useGameStore();
   const [raiseAmount, setRaiseAmount] = useState<number>(0); // 结合当前盲注
+
+  // 挂载全局监听音效，判断任何状态突变并发出声音
+  usePokerSounds(gameState, user?.id);
+
+  // 初始化音效引擎（需要用户有任意点击）
+  useEffect(() => {
+     window.addEventListener('click', initAudio, { once: true });
+     return () => window.removeEventListener('click', initAudio);
+  }, []);
 
   if (!gameState || !user) return null;
 
@@ -103,7 +114,7 @@ export default function PokerTable() {
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center justify-center gap-4 glass-panel px-8 py-4 rounded-3xl w-max animate-in slide-in-from-bottom-8">
            
            <button 
-             onClick={() => performAction('fold')}
+             onClick={() => { soundEffects.fold(); performAction('fold'); }}
              className="px-6 py-3 rounded-full font-bold bg-white/10 hover:bg-white/20 text-gray-300 transition-colors uppercase tracking-widest text-sm"
            >
              Fold
