@@ -6,7 +6,7 @@ export interface Card {
   rank: Rank;
 }
 
-export type PlayerState = 'playing' | 'folded' | 'all_in' | 'sitting_out';
+export type PlayerState = 'waiting' | 'playing' | 'folded' | 'all_in' | 'sitting_out';
 
 export interface Player {
   id: string;
@@ -27,6 +27,19 @@ export interface Pot {
   eligiblePlayers: string[]; // List of player IDs eligible to win this pot
 }
 
+export interface ShowdownPlayerResult {
+  playerId: string;
+  playerName: string;
+  cards: Card[];
+  handName: string;     // e.g. "Full House / 葫芦"
+  handRankValue: number;
+}
+
+export interface ShowdownResult {
+  winners: { playerId: string; playerName: string; potWon: number; handName: string }[];
+  playerHands: ShowdownPlayerResult[];
+}
+
 export interface GameState {
   roomId: string;
   phase: Phase;
@@ -34,12 +47,15 @@ export interface GameState {
   dealerIndex: number;          // Index of the dealer button
   currentTurn: number | null;   // Index of the player who needs to act
   currentBet: number;           // The highest bet in the current active round
-  mainPotAmount: number;        // Accumulated pot for current round
+  mainPotAmount: number;        // Total accumulated pot display value
   pots: Pot[];                  // Side pots structure
   board: Card[];
   deck: Card[];
   smallBlind: number;
   bigBlind: number;
+  lastRaiseSize: number;        // Last raise increment for minimum re-raise tracking
+  turnDeadline: number | null;  // Unix timestamp when current player must act by
+  showdownResult: ShowdownResult | null; // Showdown results for UI display
   lastLogs: string[];           // Text logs of what happened 
 }
 

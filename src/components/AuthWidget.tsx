@@ -8,6 +8,7 @@ export default function AuthWidget() {
   const [username, setUsername] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
   const { user, initAuth } = useGameStore();
 
   useEffect(() => {
@@ -16,6 +17,7 @@ export default function AuthWidget() {
 
   const handleAuth = async () => {
     setLoading(true);
+    setAuthError('');
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -38,7 +40,7 @@ export default function AuthWidget() {
         }
       }
     } catch (e: any) {
-      alert(e.message || 'Auth Error');
+      setAuthError(e.message || 'Auth Error');
     } finally {
       setLoading(false);
     }
@@ -77,6 +79,12 @@ export default function AuthWidget() {
         value={password} onChange={(e) => setPassword(e.target.value)}
       />
       
+      {authError && (
+        <div className="w-full bg-red-500/20 border border-red-500/50 text-red-200 text-sm p-3 rounded-lg mb-4">
+           {"🚨 " + authError}
+        </div>
+      )}
+
       <button 
         onClick={handleAuth}
         disabled={loading || !email || !password}

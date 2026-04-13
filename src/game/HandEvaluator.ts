@@ -39,6 +39,25 @@ export function shuffle(deck: Card[]): Card[] {
 }
 
 /**
+ * 返回牌型的中英文名称
+ */
+export function getHandName(rank: HandRank): string {
+  switch (rank) {
+    case HandRank.RoyalFlush:    return 'Royal Flush / 皇家同花顺';
+    case HandRank.StraightFlush: return 'Straight Flush / 同花顺';
+    case HandRank.FourOfAKind:   return 'Four of a Kind / 四条';
+    case HandRank.FullHouse:     return 'Full House / 葫芦';
+    case HandRank.Flush:         return 'Flush / 同花';
+    case HandRank.Straight:      return 'Straight / 顺子';
+    case HandRank.ThreeOfAKind:  return 'Three of a Kind / 三条';
+    case HandRank.TwoPair:       return 'Two Pair / 两对';
+    case HandRank.Pair:          return 'Pair / 一对';
+    case HandRank.HighCard:      return 'High Card / 高牌';
+    default:                     return 'Unknown';
+  }
+}
+
+/**
  * 评估由私人手牌 (2手牌) 和公共牌组成的手牌。
  * 会挑出最强的五张组合进行评估。
  */
@@ -73,30 +92,29 @@ export function evaluateHand(cards: Card[]): EvaluatedHand {
     }
   }
 
-  // 辅助函数：找顺子最高牌
+  // 辅助函数：找顺子最高牌 (修复版)
   const getStraightHigh = (cardsSubset: Card[]): number | null => {
     // 找出唯一并从大到小排序的 rank 数组
     const uniqueRanks = Array.from(new Set(cardsSubset.map(c => c.rank))).sort((a, b) => b - a);
     
-    // 如果有A（14），补充一个1，用以支持 5,4,3,2,A 最低顺
+    // 如果有A（14），补充一个1，用以支持 5,4,3,2,A 最低顺 (Wheel)
     if (uniqueRanks.includes(14)) {
       uniqueRanks.push(1);
     }
 
     let consecutive = 1;
-    let currentHigh = uniqueRanks[0];
 
     for (let i = 1; i < uniqueRanks.length; i++) {
       if (uniqueRanks[i] === uniqueRanks[i - 1] - 1) {
         consecutive++;
         if (consecutive >= 5) {
-          // 当前的高位即为起始的高位
-          // 但由于可能是从更上面找下来的，我们应提取当前的最高端。
-          return uniqueRanks[i - 1] + 3; 
+          // 顺子的最高牌 = 起始位置的 rank
+          // 当前 i 是连续序列的最后一个（最小的），
+          // 所以最高牌 = uniqueRanks[i] + 4
+          return uniqueRanks[i] + 4;
         }
       } else {
         consecutive = 1;
-        currentHigh = uniqueRanks[i];
       }
     }
     return null;
