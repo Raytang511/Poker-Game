@@ -6,9 +6,22 @@ interface CardProps {
   card?: CardType; // If undefined, render face down
   className?: string;
   isDealt?: boolean;
+  size?: 'sm' | 'md' | 'lg';
 }
 
-export default function Card({ card, className, isDealt = true }: CardProps) {
+const sizeMap = {
+  sm: 'w-10 h-14',
+  md: 'w-14 h-20 sm:w-16 sm:h-[92px]',
+  lg: 'w-[72px] h-[104px] sm:w-20 sm:h-28',
+};
+
+const fontSizeMap = {
+  sm: { rank: 'text-xs', suit: 'text-[10px]', center: 'text-2xl' },
+  md: { rank: 'text-sm', suit: 'text-xs', center: 'text-4xl' },
+  lg: { rank: 'text-lg', suit: 'text-sm', center: 'text-6xl' },
+};
+
+export default function Card({ card, className, isDealt = true, size = 'lg' }: CardProps) {
   const isRed = card?.suit === 'hearts' || card?.suit === 'diamonds';
   
   const getSuitIcon = (suit: string) => {
@@ -25,42 +38,63 @@ export default function Card({ card, className, isDealt = true }: CardProps) {
                       card?.rank === 13 ? 'K' :
                       card?.rank === 12 ? 'Q' :
                       card?.rank === 11 ? 'J' : 
-                      card?.rank;
+                      card?.rank?.toString();
+
+  const sizes = sizeMap[size];
+  const fonts = fontSizeMap[size];
 
   return (
     <div 
       className={clsx(
-        "relative w-16 h-24 sm:w-20 sm:h-28 rounded-md shadow-xl select-none playing-card-hover",
-        isDealt ? "animate-deal flex-shrink-0" : "",
+        "relative rounded-lg select-none playing-card flex-shrink-0",
+        sizes,
+        isDealt ? "animate-deal" : "",
         className
       )}
     >
       {card ? (
-        // Face up
-        <div className="absolute inset-0 bg-white rounded-md border border-gray-300 flex flex-col justify-between p-1.5 overflow-hidden">
-          {/* Top-left */}
-          <div className={clsx("flex flex-col items-center leading-none", isRed ? "text-red-600" : "text-black")}>
-            <span className="text-lg font-bold tracking-tighter">{rankDisplay}</span>
-            <span className="text-sm">{getSuitIcon(card.suit)}</span>
+        // Face up card
+        <div className="absolute inset-0 bg-white rounded-lg overflow-hidden"
+             style={{
+               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 2px 8px rgba(0,0,0,0.25)'
+             }}
+        >
+          {/* Top-left corner */}
+          <div className={clsx("absolute top-1 left-1.5 flex flex-col items-center leading-none", isRed ? "text-red-500" : "text-gray-800")}>
+            <span className={clsx(fonts.rank, "font-bold")}>{rankDisplay}</span>
+            <span className={fonts.suit}>{getSuitIcon(card.suit)}</span>
           </div>
           
-          {/* Center */}
-          <div className={clsx("absolute inset-0 flex items-center justify-center pointer-events-none opacity-20", isRed ? "text-red-600" : "text-black")}>
-             <span className="text-6xl">{getSuitIcon(card.suit)}</span>
+          {/* Center suit watermark */}
+          <div className={clsx("absolute inset-0 flex items-center justify-center pointer-events-none", isRed ? "text-red-500/15" : "text-gray-800/10")}>
+             <span className={fonts.center}>{getSuitIcon(card.suit)}</span>
           </div>
           
-          {/* Bottom-right */}
-          <div className={clsx("flex flex-col items-center leading-none rotate-180", isRed ? "text-red-600" : "text-black")}>
-            <span className="text-lg font-bold tracking-tighter">{rankDisplay}</span>
-            <span className="text-sm">{getSuitIcon(card.suit)}</span>
+          {/* Bottom-right corner (rotated) */}
+          <div className={clsx("absolute bottom-1 right-1.5 flex flex-col items-center leading-none rotate-180", isRed ? "text-red-500" : "text-gray-800")}>
+            <span className={clsx(fonts.rank, "font-bold")}>{rankDisplay}</span>
+            <span className={fonts.suit}>{getSuitIcon(card.suit)}</span>
           </div>
         </div>
       ) : (
-        // Face down (Card Back)
-        <div className="absolute inset-0 bg-blue-800 rounded-md border-2 border-white flex items-center justify-center p-1">
-           <div className="w-full h-full border border-blue-400 opacity-60 rounded-sm" style={{
-              backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.1) 4px, rgba(255,255,255,0.1) 8px)'
-           }} />
+        // Face down card
+        <div className="absolute inset-0 rounded-lg overflow-hidden"
+             style={{
+               background: 'linear-gradient(135deg, #1e3a5f, #1a2744)',
+               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.3)'
+             }}
+        >
+          <div className="absolute inset-[3px] rounded-md border border-blue-400/20"
+               style={{
+                 background: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(100,150,255,0.06) 3px, rgba(100,150,255,0.06) 6px)',
+               }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-full border border-blue-400/30 flex items-center justify-center">
+                <span className="text-blue-400/40 text-xs font-bold">♠</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

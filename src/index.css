@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 @layer utilities {
   .perspective-1000 {
     perspective: 1000px;
@@ -11,48 +13,157 @@
   }
 }
 
-body {
-  font-family: 'Inter', system-ui, sans-serif;
-  background-color: #111827; /* tailwind gray-900 */
+* {
+  box-sizing: border-box;
 }
 
-/* 扑克桌阴影与质感 */
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #0c1220;
+  overflow: hidden;
+}
+
+/* ─── Poker Table ─── */
 .table-surface {
-  background: radial-gradient(circle, #0e5e33 0%, #0a4223 100%);
-  border: 14px solid #4a3018; /* 深木色包边 */
-  border-radius: 9999px; /* 椭圆 */
-  box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 20px 40px rgba(0,0,0,0.6);
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, #167a4a 0%, #0e5e33 40%, #094424 100%);
+  border: 12px solid transparent;
+  border-image: linear-gradient(145deg, #8b6914, #5a3c0e, #8b6914, #5a3c0e) 1;
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 0 60px rgba(0,0,0,0.5),
+    inset 0 2px 4px rgba(255,255,255,0.08),
+    0 8px 32px rgba(0,0,0,0.6),
+    0 20px 60px rgba(0,0,0,0.4);
+  /* border-image breaks border-radius, use outline hack */
+  border-image: none;
+  border-color: #6b4c1c;
+  outline: 4px solid #3d2a0e;
+  outline-offset: -1px;
 }
 
 .table-felt {
   border-radius: 9999px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 50px rgba(0,0,0,0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.35);
+  background: radial-gradient(ellipse at center, rgba(30,130,72,0.15), transparent 70%);
 }
 
-/* 发牌动画 */
+/* ─── Card Animations ─── */
 @keyframes deal-card {
-  0% { opacity: 0; transform: translateY(-30px) scale(0.8) rotate(-10deg); }
-  100% { opacity: 1; transform: translateY(0px) scale(1) rotate(0deg); }
+  0% { opacity: 0; transform: translateY(-40px) scale(0.7) rotateY(-30deg); }
+  60% { opacity: 1; transform: translateY(2px) scale(1.02) rotateY(0deg); }
+  100% { opacity: 1; transform: translateY(0px) scale(1) rotateY(0deg); }
 }
 
 .animate-deal {
-  animation: deal-card 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  animation: deal-card 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
-/* 玻璃拟态面板 */
+@keyframes slide-up {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(52,211,153,0.4); }
+  50% { box-shadow: 0 0 25px rgba(52,211,153,0.7), 0 0 40px rgba(52,211,153,0.2); }
+}
+
+.active-turn-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes chip-bounce {
+  0% { transform: translateY(-8px) scale(0.8); opacity: 0; }
+  60% { transform: translateY(1px) scale(1.05); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.animate-chip {
+  animation: chip-bounce 0.35s ease-out forwards;
+}
+
+@keyframes showdown-enter {
+  0% { opacity: 0; transform: translateY(-30px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-showdown {
+  animation: showdown-enter 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* ─── Glass Panel ─── */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 16, 30, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* 扑克牌悬浮效果 */
-.playing-card-hover {
+/* ─── Card Styles ─── */
+.playing-card {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
 }
-.playing-card-hover:hover {
-  transform: translateY(-8px) scale(1.05);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+
+.playing-card-interactive:hover {
+  transform: translateY(-6px) scale(1.04) !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+
+/* ─── Action Bar ─── */
+.action-bar {
+  background: rgba(8, 12, 24, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+}
+
+/* ─── Custom Scrollbar ─── */
+.log-panel::-webkit-scrollbar {
+  width: 3px;
+}
+.log-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.log-panel::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 99px;
+}
+
+/* ─── Timer Progress ─── */
+@keyframes timer-urgency {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.timer-urgent {
+  animation: timer-urgency 0.5s ease-in-out infinite;
+}
+
+/* ─── Range Slider ─── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 99px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #34d399, #059669);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(52,211,153,0.5);
+  border: 2px solid rgba(255,255,255,0.2);
 }

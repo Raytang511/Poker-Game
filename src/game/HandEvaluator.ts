@@ -95,7 +95,7 @@ export function evaluateHand(cards: Card[]): EvaluatedHand {
   // 辅助函数：找顺子最高牌 (修复版)
   const getStraightHigh = (cardsSubset: Card[]): number | null => {
     // 找出唯一并从大到小排序的 rank 数组
-    const uniqueRanks = Array.from(new Set(cardsSubset.map(c => c.rank))).sort((a, b) => b - a);
+    const uniqueRanks: number[] = Array.from(new Set(cardsSubset.map(c => c.rank))).sort((a, b) => b - a);
     
     // 如果有A（14），补充一个1，用以支持 5,4,3,2,A 最低顺 (Wheel)
     if (uniqueRanks.includes(14)) {

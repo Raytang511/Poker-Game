@@ -8,75 +8,141 @@ interface SeatProps {
   player: Player;
   isDealer?: boolean;
   isActiveTurn?: boolean;
+  isShowdown?: boolean;
+  turnDeadline?: number | null;
+  position: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }
 
-export default function PlayerSeat({ player, isDealer, isActiveTurn }: SeatProps) {
+export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown, turnDeadline, position }: SeatProps) {
   const myId = useGameStore(state => state.user?.id);
   const isMe = player.id === myId;
+  const isActive = player.status === 'playing' || player.status === 'all_in';
+  const fade = player.status === 'folded' || player.status === 'sitting_out' || player.status === 'waiting';
+  const showRealCards = isMe || !!isShowdown;
 
-  const showCards = player.status === 'playing' || player.status === 'all_in';
-  
-  // Folded 透明度降低
-  const fade = player.status === 'folded' || player.status === 'sitting_out';
+  // Timer calculation
+  const getTimerPercent = () => {
+    if (!isActiveTurn || !turnDeadline) return 100;
+    const remaining = Math.max(0, turnDeadline - Date.now());
+    return (remaining / 30000) * 100;
+  };
+  const timerPercent = getTimerPercent();
+  const isUrgent = timerPercent < 30;
+
+  // Card placement: cards go BELOW for bottom positions, ABOVE for top, to the sides for left/right
+  const isBottom = position === 'bottom' || position === 'bottom-left' || position === 'bottom-right';
+  const isTop = position === 'top' || position === 'top-left' || position === 'top-right';
+
+  // Bet chip direction: toward center of table 
+  const betPosition = (() => {
+    switch(position) {
+      case 'bottom': return '-top-10 left-1/2 -translate-x-1/2';
+      case 'top': return '-bottom-10 left-1/2 -translate-x-1/2';
+      case 'left': return 'top-1/2 -translate-y-1/2 -right-20';
+      case 'right': return 'top-1/2 -translate-y-1/2 -left-20';
+      case 'bottom-left': return '-top-8 right-0 translate-x-4';
+      case 'bottom-right': return '-top-8 left-0 -translate-x-4';
+      case 'top-left': return '-bottom-8 right-0 translate-x-4';
+      case 'top-right': return '-bottom-8 left-0 -translate-x-4';
+      default: return '-top-10 left-1/2 -translate-x-1/2';
+    }
+  })();
 
   return (
-    <div className={clsx("relative flex flex-col items-center transition-opacity", fade && "opacity-40 grayscale-[0.5]")}>
+    <div className={clsx(
+      "relative flex items-center gap-2 transition-all duration-300", 
+      fade && "opacity-35 grayscale-[0.6]",
+      isBottom ? "flex-col" : isTop ? "flex-col-reverse" : "flex-row"
+    )}>
       
-      {/* 下注筹码区 */}
+      {/* 下注筹码 - 朝向桌子中心 */}
       {player.bet > 0 && (
-        <div className="absolute -top-12 flex items-center justify-center bg-black/40 px-3 py-1 rounded-full border border-yellow-500/30 transform translate-y-[-10px]">
-          <span className="text-poker-gold font-bold text-sm mr-1">🪙</span> 
-          <span className="font-mono text-sm tracking-wider">{player.bet}</span>
+        <div className={clsx("absolute z-30 animate-chip", betPosition)}>
+          <div className="flex items-center gap-1 bg-black/70 px-2.5 py-1 rounded-full border border-yellow-500/30 shadow-lg">
+            <span className="text-yellow-400 text-xs">🪙</span>
+            <span className="font-mono text-xs text-yellow-300 font-semibold tracking-wider">{player.bet}</span>
+          </div>
         </div>
       )}
 
       {/* 庄家标识 */}
       {isDealer && (
-        <div className="absolute -right-6 top-0 w-6 h-6 rounded-full bg-white text-black flex items-center justify-center font-bold text-xs shadow-md border-2 border-gray-300 z-20">
+        <div className="absolute -right-3 -top-2 w-5 h-5 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500 text-black flex items-center justify-center font-black text-[10px] shadow-lg z-30 border border-yellow-600/50">
           D
         </div>
       )}
 
-      {/* 头像与信息面板 */}
+      {/* 手牌 - 顶部玩家牌在上方，底部玩家牌在下方 */}
+      {isActive && isTop && (
+        <div className="flex gap-1 mb-1">
+          {renderCards(player, showRealCards)}
+        </div>
+      )}
+
+      {/* 主面板 */}
       <div className={clsx(
-        "bg-black/60 backdrop-blur-sm rounded-xl p-3 border-2 shadow-lg min-w-[120px] z-10 flex flex-col items-center transform transition-transform", 
-        isActiveTurn ? "border-emerald-400 scale-105 shadow-[0_0_15px_rgba(52,211,153,0.5)]" : "border-white/10"
+        "relative rounded-xl px-4 py-2.5 shadow-xl min-w-[110px] z-10 flex flex-col items-center transition-all duration-300",
+        isActiveTurn 
+          ? "bg-gradient-to-b from-emerald-900/80 to-black/80 border-2 border-emerald-400/70 active-turn-glow" 
+          : "bg-gradient-to-b from-slate-800/90 to-black/70 border border-white/10",
+        "backdrop-blur-md"
       )}>
-        <p className="font-semibold text-sm truncate max-w-full text-slate-200">
-           {player.name} {isMe && '(You)'}
+        {/* Timer bar */}
+        {isActiveTurn && turnDeadline && (
+          <div className="absolute -top-0.5 left-2 right-2 h-[3px] bg-black/50 rounded-full overflow-hidden">
+            <div 
+              className={clsx(
+                "h-full rounded-full transition-all duration-1000 ease-linear",
+                isUrgent ? "bg-red-500 timer-urgent" : "bg-gradient-to-r from-emerald-400 to-emerald-300"
+              )}
+              style={{ width: `${timerPercent}%` }}
+            />
+          </div>
+        )}
+        
+        <p className={clsx(
+          "font-semibold text-xs truncate max-w-[100px]",
+          isMe ? "text-emerald-300" : "text-slate-200"
+        )}>
+           {player.name} {isMe && <span className="text-emerald-400/60">(You)</span>}
         </p>
         
-        <p className="text-poker-gold font-mono font-bold text-sm mt-1">
-          ${player.chips}
+        <p className="text-poker-gold font-mono font-bold text-sm mt-0.5 tracking-wide">
+          ${player.chips.toLocaleString()}
         </p>
 
-        {/* 状态徽章 (Folded / All-in) */}
+        {/* Status badges */}
         {player.status === 'folded' && (
-           <span className="absolute -bottom-2 bg-red-600 text-[10px] px-2 rounded font-bold uppercase tracking-widest text-white border border-red-900 border-opacity-50">Folded</span>
+           <span className="absolute -bottom-2.5 bg-red-600/90 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest text-white shadow-lg">Fold</span>
         )}
         {player.status === 'all_in' && (
-           <span className="absolute -bottom-2 bg-purple-600 text-[10px] px-2 rounded font-bold uppercase tracking-widest text-white border border-purple-900 border-opacity-50">All In</span>
+           <span className="absolute -bottom-2.5 bg-gradient-to-r from-purple-600 to-pink-500 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest text-white shadow-lg">All In</span>
         )}
       </div>
 
-      {/* 手牌显示 */}
-      {showCards && (
-         <div className="absolute bottom-[-30px] sm:bottom-[-40px] flex px-2 pointer-events-none perspective-1000">
-            {player.cards.length === 2 ? (
-                // 若为自身，或者是showdown阶段且卡牌可见，就渲染真实牌，否则渲染背面
-                <>
-                  <Card card={(isMe || player.cards.length > 0) ? player.cards[0] : undefined} className="origin-bottom-left rotate-[-5deg] scale-75" isDealt={false} />
-                  <Card card={(isMe || player.cards.length > 0) ? player.cards[1] : undefined} className="origin-bottom-right rotate-[5deg] scale-75 -ml-8 sm:-ml-12" isDealt={false} />
-                </>
-            ) : (
-                // 没发到客户端则默认2张盖着的牌
-                <>
-                  <Card className="origin-bottom-left rotate-[-5deg] scale-75" />
-                  <Card className="origin-bottom-right rotate-[5deg] scale-75 -ml-8 sm:-ml-12" />
-                </>
-            )}
-         </div>
+      {/* 手牌 - 底部玩家 */}
+      {isActive && !isTop && (
+        <div className="flex gap-1 mt-1">
+          {renderCards(player, showRealCards)}
+        </div>
       )}
     </div>
+  );
+}
+
+function renderCards(player: Player, showReal: boolean) {
+  if (player.cards.length === 2 && showReal) {
+    return (
+      <>
+        <Card card={player.cards[0]} size="md" className="rotate-[-4deg]" isDealt={false} />
+        <Card card={player.cards[1]} size="md" className="rotate-[4deg] -ml-3" isDealt={false} />
+      </>
+    );
+  }
+  return (
+    <>
+      <Card size="md" className="rotate-[-4deg]" />
+      <Card size="md" className="rotate-[4deg] -ml-3" />
+    </>
   );
 }

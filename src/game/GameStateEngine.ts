@@ -1,5 +1,7 @@
-import { GameState, Phase, Player, Action, Pot, Card } from './types';
-import { generateDeck, shuffle, evaluateHand, compareHands, EvaluatedHand } from './HandEvaluator';
+import { GameState, Phase, Player, Action, Pot, Card, ShowdownResult, ShowdownPlayerResult } from './types';
+import { generateDeck, shuffle, evaluateHand, compareHands, getHandName, EvaluatedHand } from './HandEvaluator';
+
+const ACTION_TIMEOUT_MS = 30_000; // 30 seconds per action
 
 export class GameStateEngine {
   private state: GameState;
@@ -21,6 +23,9 @@ export class GameStateEngine {
         deck: [],
         smallBlind,
         bigBlind,
+        lastRaiseSize: bigBlind,
+        turnDeadline: null,
+        showdownResult: null,
         lastLogs: []
       };
     }
@@ -44,7 +49,7 @@ export class GameStateEngine {
       ...player,
       bet: 0,
       totalBet: 0,
-      status: 'waiting' as any, // initial status
+      status: 'waiting',
       actedRound: false,
       cards: []
     });
@@ -52,15 +57,26 @@ export class GameStateEngine {
   }
 
   removePlayer(playerId: string) {
-    // 简略版：直接离开；实际中需考虑在游戏中离开变为 fold 等
-    this.state.players = this.state.players.filter(p => p.id !== playerId);
-    this.log(`玩家 ${playerId} 离开了房间`);
+    const player = this.state.players.find(p => p.id === playerId);
+    if (player) {
+      // 如果在游戏中，先视作弃牌
+      if (player.status === 'playing' || player.status === 'all_in') {
+        player.status = 'folded';
+        // 如果当前轮到该玩家，推进游戏
+        if (this.state.currentTurn !== null && this.state.players[this.state.currentTurn]?.id === playerId) {
+          this.checkRoundEnd();
+        }
+      }
+      this.state.players = this.state.players.filter(p => p.id !== playerId);
+      this.log(`玩家 ${player.name} 离开了房间`);
+    }
   }
 
   // --- 2. 游戏核心流程控制 ---
   startNewHand() {
-    const activePlayers = this.state.players.filter(p => p.chips > 0 || (p as any).status !== 'waiting');
-    if (activePlayers.length < 2) {
+    // 筛选出有筹码的活跃玩家
+    const eligiblePlayers = this.state.players.filter(p => p.chips > 0);
+    if (eligiblePlayers.length < 2) {
       this.log("人数不足，等待更多玩家");
       this.state.phase = 'waiting';
       return;
@@ -84,15 +100,20 @@ export class GameStateEngine {
     this.state.pots = [];
     this.state.mainPotAmount = 0;
     this.state.currentBet = 0;
+    this.state.lastRaiseSize = this.state.bigBlind;
+    this.state.turnDeadline = null;
+    this.state.showdownResult = null;
     this.state.phase = 'pre_flop';
 
     // 移动庄家(Button)
     let dealerFound = false;
-    while (!dealerFound) {
+    let attempts = 0;
+    while (!dealerFound && attempts < this.state.players.length) {
       this.state.dealerIndex = (this.state.dealerIndex + 1) % this.state.players.length;
       if (this.state.players[this.state.dealerIndex].status === 'playing') {
         dealerFound = true;
       }
+      attempts++;
     }
 
     const sbIndex = this.getNextActivePlayerIndex(this.state.dealerIndex);
@@ -114,6 +135,11 @@ export class GameStateEngine {
 
     // 确定下个行动玩家（大盲位的下一位，即 UTG）
     this.state.currentTurn = this.getNextActivePlayerIndex(bbIndex);
+    this.setTurnDeadline();
+    
+    // 更新底池显示值
+    this.updateMainPotDisplay();
+    
     this.log("新的一局开始了 (Pre-flop)");
   }
 
@@ -164,11 +190,26 @@ export class GameStateEngine {
         break;
         
       case 'bet':
-      case 'raise':
-        if (amount < this.state.bigBlind) throw new Error("加注额不能小于大盲");
-        actAmount = Math.min(player.chips, amount);
+      case 'raise': {
+        // 最小加注额 = max(上次加注增量, 大盲注)
+        const minRaiseTotal = this.state.currentBet + this.state.lastRaiseSize;
+        const totalNeeded = amount; // amount is the total raise-to amount relative to what player needs to put in
+        
+        // 计算玩家需要投入的总额（加注到的目标值）
+        const raiseToTarget = player.bet + totalNeeded;
+        
+        if (raiseToTarget < minRaiseTotal && totalNeeded < player.chips) {
+          // 如果不是 all-in，则不能低于最小加注
+          throw new Error(`加注额不足，最小加注到 ${minRaiseTotal}，当前尝试到 ${raiseToTarget}`);
+        }
+        
+        actAmount = Math.min(player.chips, totalNeeded);
+        const oldBet = player.bet;
         this.commitBet(player, actAmount);
+        
         if (player.bet > this.state.currentBet) {
+          const raiseIncrement = player.bet - this.state.currentBet;
+          this.state.lastRaiseSize = Math.max(this.state.lastRaiseSize, raiseIncrement);
           this.state.currentBet = player.bet;
           // 有人加注后，其他人需要重新行动
           this.state.players.forEach(p => {
@@ -176,13 +217,16 @@ export class GameStateEngine {
           });
         }
         player.actedRound = true;
-        this.log(`${player.name} ${action} ${actAmount}`);
+        this.log(`${player.name} ${action} ${actAmount} (总下注: ${player.bet})`);
         break;
+      }
         
       case 'all_in':
         actAmount = player.chips;
         this.commitBet(player, actAmount);
         if (player.bet > this.state.currentBet) {
+          const raiseIncrement = player.bet - this.state.currentBet;
+          this.state.lastRaiseSize = Math.max(this.state.lastRaiseSize, raiseIncrement);
           this.state.currentBet = player.bet;
           this.state.players.forEach(p => {
              if (p.id !== player.id && p.status === 'playing') p.actedRound = false;
@@ -194,7 +238,26 @@ export class GameStateEngine {
         break;
     }
 
+    this.updateMainPotDisplay();
     this.checkRoundEnd();
+  }
+
+  /**
+   * 检查当前行动是否超时。如果超时则自动 fold。
+   * 返回 true 如果执行了超时处理。
+   */
+  checkTimeout(): boolean {
+    if (this.state.currentTurn === null || this.state.turnDeadline === null) return false;
+    if (Date.now() < this.state.turnDeadline) return false;
+    
+    const player = this.state.players[this.state.currentTurn];
+    if (player.status !== 'playing') return false;
+    
+    this.log(`${player.name} 超时自动弃牌 (Timeout Fold)`);
+    player.status = 'folded';
+    this.updateMainPotDisplay();
+    this.checkRoundEnd();
+    return true;
   }
 
   private commitBet(player: Player, amount: number) {
@@ -207,13 +270,29 @@ export class GameStateEngine {
     }
   }
 
+  private setTurnDeadline() {
+    if (this.state.currentTurn !== null) {
+      this.state.turnDeadline = Date.now() + ACTION_TIMEOUT_MS;
+    } else {
+      this.state.turnDeadline = null;
+    }
+  }
+
+  /**
+   * 更新 mainPotAmount 显示值 = 所有已收集的 pots 总额 + 当前轮各玩家的未收集下注
+   */
+  private updateMainPotDisplay() {
+    const collectedPots = this.state.pots.reduce((sum, p) => sum + p.amount, 0);
+    const currentBets = this.state.players.reduce((sum, p) => sum + p.bet, 0);
+    this.state.mainPotAmount = collectedPots + currentBets;
+  }
+
   private getNextActivePlayerIndex(startIndex: number): number {
     let next = startIndex;
     const len = this.state.players.length;
     for (let i = 0; i < len; i++) {
       next = (next + 1) % len;
       const status = this.state.players[next].status;
-      // All_in 的玩家跳过行动阶段，但在找盲注位置时，需要考虑。如果该方法专用于行动回合：
       if (status === 'playing') {
         return next;
       }
@@ -238,6 +317,14 @@ export class GameStateEngine {
       return;
     }
 
+    // 情况1b：所有人弃牌，没有活跃玩家（理论上不应发生，但做保护）
+    if (active === 0) {
+      this.state.phase = 'waiting';
+      this.state.currentTurn = null;
+      this.state.turnDeadline = null;
+      return;
+    }
+
     // 检查此轮是否所有需行动玩家都已完成行动（且跟平了 currentBet）
     const needToAct = this.state.players.filter(p => p.status === 'playing' && (!p.actedRound || p.bet < this.state.currentBet));
 
@@ -256,6 +343,7 @@ export class GameStateEngine {
     } else {
       // 继续下一人的回合
       this.state.currentTurn = this.getNextActivePlayerIndex(this.state.currentTurn!);
+      this.setTurnDeadline();
     }
   }
 
@@ -284,7 +372,6 @@ export class GameStateEngine {
         // 合并到最近有相同 eligibleIds 的边池中，或者新建
         if (this.state.pots.length > 0) {
           const lastPot = this.state.pots[this.state.pots.length - 1];
-          // 如果符合条件的人相同，说明没有引入新的 all_in 条件切分，直接累加
           if (JSON.stringify(lastPot.eligiblePlayers.sort()) === JSON.stringify(eligibleIds.sort())) {
             lastPot.amount += potSlice;
           } else {
@@ -304,22 +391,26 @@ export class GameStateEngine {
       p.bet = 0;
     });
     this.state.currentBet = 0;
+    this.state.lastRaiseSize = this.state.bigBlind;
+    
+    // 更新底池显示值
+    this.updateMainPotDisplay();
   }
 
   private advancePhase() {
     switch (this.state.phase) {
       case 'pre_flop':
-        this.dealBoardContext(3);
+        this.dealBoardCards(3);
         this.state.phase = 'flop';
         this.log(`发翻牌 (Flop): ${this.getBoardString(0,3)}`);
         break;
       case 'flop':
-        this.dealBoardContext(1);
+        this.dealBoardCards(1);
         this.state.phase = 'turn';
         this.log(`发转牌 (Turn): ${this.getBoardString(3,4)}`);
         break;
       case 'turn':
-        this.dealBoardContext(1);
+        this.dealBoardCards(1);
         this.state.phase = 'river';
         this.log(`发河牌 (River): ${this.getBoardString(4,5)}`);
         break;
@@ -331,6 +422,7 @@ export class GameStateEngine {
     
     // 每轮开始前，优先由小盲位发起 (或者小盲顺延)
     this.state.currentTurn = this.getNextActivePlayerIndex(this.state.dealerIndex);
+    this.setTurnDeadline();
   }
 
   private autoDealToRiver() {
@@ -344,7 +436,7 @@ export class GameStateEngine {
     }
   }
 
-  private dealBoardContext(count: number) {
+  private dealBoardCards(count: number) {
     for (let i = 0; i < count; i++) {
         this.state.board.push(this.state.deck.pop()!);
     }
@@ -355,7 +447,15 @@ export class GameStateEngine {
   }
 
   private handleEarlyWin() {
-    const winner = this.state.players.find(p => p.status !== 'folded')!;
+    // 只在 playing 和 all_in 中找获胜者，排除 sitting_out
+    const winner = this.state.players.find(p => p.status === 'playing' || p.status === 'all_in');
+    if (!winner) {
+      this.state.phase = 'waiting';
+      this.state.currentTurn = null;
+      this.state.turnDeadline = null;
+      return;
+    }
+
     let totalWin = 0;
     
     this.state.players.forEach(p => {
@@ -365,9 +465,18 @@ export class GameStateEngine {
     this.state.pots.forEach(pot => totalWin += pot.amount);
 
     winner.chips += totalWin;
+    
+    this.state.showdownResult = {
+      winners: [{ playerId: winner.id, playerName: winner.name, potWon: totalWin, handName: '其他人弃牌' }],
+      playerHands: []
+    };
+    
     this.log(`${winner.name} 赢得了 ${totalWin} (其他人弃牌)`);
-    this.state.phase = 'waiting';
+    this.state.phase = 'showdown'; // 短暂进入 showdown 展示结果
     this.state.currentTurn = null;
+    this.state.turnDeadline = null;
+    this.state.pots = [];
+    this.updateMainPotDisplay();
   }
 
   // --- 4. 结算比牌 (Showdown & Evaluate) ---
@@ -376,17 +485,25 @@ export class GameStateEngine {
     
     // 解析所有活着的玩家卡牌并排序评分
     const playerResults: { p: Player; evalHand: EvaluatedHand }[] = [];
+    const showdownHands: ShowdownPlayerResult[] = [];
     
     this.state.players.forEach(p => {
-      if (p.status !== 'folded') {
+      if (p.status !== 'folded' && p.status !== 'sitting_out' && p.status !== 'waiting') {
         const h = evaluateHand([...p.cards, ...this.state.board]);
         playerResults.push({ p, evalHand: h });
+        showdownHands.push({
+          playerId: p.id,
+          playerName: p.name,
+          cards: [...p.cards],
+          handName: getHandName(h.rank),
+          handRankValue: h.rank
+        });
       }
     });
 
+    const allWinners: ShowdownResult['winners'] = [];
+
     // 针对每个边池依次进行结算
-    // 从最近的底池(最小的 eligible 人数) 结算到 最早的底池(最大的 eligible 人数)？ 
-    // 应该从最早产生的池结算，这里循环 pots 即可。
     for (let i = 0; i < this.state.pots.length; i++) {
       const pot = this.state.pots[i];
       if (pot.amount === 0) continue;
@@ -403,7 +520,7 @@ export class GameStateEngine {
         if (compareHands(winners[0].evalHand, eligibleResults[j].evalHand) === 0) {
           winners.push(eligibleResults[j]);
         } else {
-          break; // 由于降序排的，后面的一定更小
+          break;
         }
       }
 
@@ -411,14 +528,47 @@ export class GameStateEngine {
       const winAmount = Math.floor(pot.amount / winners.length);
       winners.forEach(w => {
         w.p.chips += winAmount;
-        this.log(`${w.p.name} 赢得了底池 ${winAmount} (牌型等级: ${w.evalHand.rank})`);
+        const handName = getHandName(w.evalHand.rank);
+        allWinners.push({ playerId: w.p.id, playerName: w.p.name, potWon: winAmount, handName });
+        this.log(`${w.p.name} 赢得了底池 ${winAmount} (${handName})`);
       });
 
       pot.amount = 0;
     }
 
-    this.state.phase = 'waiting';
+    this.state.showdownResult = {
+      winners: allWinners,
+      playerHands: showdownHands
+    };
+
     this.state.currentTurn = null;
+    this.state.turnDeadline = null;
+    // phase 保持 'showdown'，由调用方检测后延时开始新一局
+    this.updateMainPotDisplay();
   }
 
+  /**
+   * 将 GameState 准备好广播给 Client。过滤掉非指定玩家的手牌。
+   * @param forPlayerId 目标玩家 ID（保留该玩家的手牌）
+   */
+  getSanitizedStateFor(forPlayerId: string): GameState {
+    const cloned = JSON.parse(JSON.stringify(this.state)) as GameState;
+    
+    // 在 Showdown 阶段，所有手牌可见
+    if (cloned.phase === 'showdown') {
+      return cloned;
+    }
+    
+    // 非 Showdown 阶段，只保留指定玩家的手牌
+    cloned.players.forEach(p => {
+      if (p.id !== forPlayerId) {
+        p.cards = []; // 清空其他人的手牌
+      }
+    });
+    
+    // 永远不发牌堆给客户端
+    cloned.deck = [];
+    
+    return cloned;
+  }
 }
