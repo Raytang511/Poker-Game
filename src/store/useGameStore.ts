@@ -57,18 +57,36 @@ export const useGameStore = create<StoreState>((set, get) => ({
   _onlinePlayers: new Set(),
   
   initAuth: () => {
+     // 防止 React Strict Mode 下重复挂载导致 Supabase 内部死锁 (lock:sb-xxx not released)
+     if ((window as any)._authInitialized) return;
+     (window as any)._authInitialized = true;
+
      // 监听实际的 Supabase Auth 状态
      supabase.auth.onAuthStateChange(async (event, session) => {
         if (session?.user) {
-           // 获取数据库 Profile 中的 chips
-           const { data } = await supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
-           set({ 
-             user: { 
-               id: session.user.id, 
-               name: data?.username || 'Player', 
-               chips: data?.chips || 0 
-             } 
-           });
+           try {
+              // 获取数据库 Profile 中的 chips
+              const { data, error } = await supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
+              if (error) console.error("Profile load issue:", error);
+              
+              set({ 
+                user: { 
+                  id: session.user.id, 
+                  name: data?.username || session.user.email?.split('@')[0] || 'Player', 
+                  chips: data?.chips || 1000 
+                } 
+              });
+           } catch(err) {
+              console.error("Failed to load profile", err);
+              // Fallback to allow them into the game even if profiles table is missing
+              set({ 
+                user: { 
+                  id: session.user.id, 
+                  name: session.user.email?.split('@')[0] || 'Player', 
+                  chips: 1000 
+                } 
+              });
+           }
         } else {
            set({ user: null });
         }
