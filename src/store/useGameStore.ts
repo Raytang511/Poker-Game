@@ -79,14 +79,18 @@ export const useGameStore = create<StoreState>((set, get) => ({
          return;
        }
        try {
-         const { data, error } = await supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
-         if (error) console.error("[Auth] Profile load issue:", error);
+         const profilePromise = supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
+         const timeout = new Promise<{ data: null; error: Error }>(resolve =>
+           setTimeout(() => resolve({ data: null, error: new Error('profile query timeout') }), 8000)
+         );
+         const { data, error } = await Promise.race([profilePromise, timeout]) as any;
+         if (error) console.warn("[Auth] Profile load issue:", error.message);
 
          useGameStore.setState({
            user: {
              id: session.user.id,
              name: data?.username || session.user.email?.split('@')[0] || 'Player',
-             chips: data?.chips || 1000
+             chips: data?.chips ?? 5000
            }
          });
        } catch(err) {
@@ -95,7 +99,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
            user: {
              id: session.user.id,
              name: session.user.email?.split('@')[0] || 'Player',
-             chips: 1000
+             chips: 5000
            }
          });
        }

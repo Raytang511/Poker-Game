@@ -37,6 +37,23 @@ export default function AuthWidget() {
   const [authError, setAuthError] = useState('');
   const [guestName, setGuestName] = useState('');
 
+  // 从 session 加载用户 profile 并直接更新 store
+  async function applySession(session: any) {
+    if (!session?.user) return;
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('username, chips')
+      .eq('id', session.user.id)
+      .single();
+    useGameStore.setState({
+      user: {
+        id: session.user.id,
+        name: profile?.username || session.user.email?.split('@')[0] || 'Player',
+        chips: profile?.chips ?? 5000,
+      },
+    });
+  }
+
   const handleAuth = async () => {
     if (!isSupabaseConfigured) {
       setAuthError('Supabase 未配置，请使用本地账号或填写 .env 后重启');
@@ -46,10 +63,14 @@ export default function AuthWidget() {
     setAuthError('');
     try {
       if (isLogin) {
-        const { error } = await withTimeout(
+        const { error, data } = await withTimeout(
           supabase.auth.signInWithPassword({ email, password })
         );
         if (error) throw error;
+        // 直接从返回的 session 更新 store，不依赖 onAuthStateChange 的异步回调
+        if (data.session) {
+          await applySession(data.session);
+        }
       } else {
         const { error, data } = await withTimeout(
           supabase.auth.signUp({
@@ -60,13 +81,21 @@ export default function AuthWidget() {
         );
         if (error) throw error;
         if (data.user) {
-          await withTimeout(
-            supabase.from('profiles').insert({
+          // upsert 避免重复注册报错；在 onAuthStateChange SELECT 之前先写入
+          const { error: profileError } = await withTimeout(
+            supabase.from('profiles').upsert({
               id: data.user.id,
               username: username || email.split('@')[0],
               chips: 5000,
-            }) as unknown as Promise<unknown>
+            }) as unknown as Promise<{ error: any }>
           );
+          if (profileError) {
+            console.warn('[Auth] Profile upsert failed (non-fatal):', profileError.message);
+          }
+          // 注册后也立即更新 store
+          if (data.session) {
+            await applySession(data.session);
+          }
         }
       }
     } catch (e: any) {
