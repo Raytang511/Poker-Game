@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import PlayerSeat from './PlayerSeat';
 import Card from './Card';
 import BettingControls from './BettingControls';
 import HandHistory from './HandHistory';
 import ScoreBoard from './ScoreBoard';
+import ChatRoom from './ChatRoom';
+import HandRankDisplay from './HandRankDisplay';
 import { usePokerSounds } from '../hooks/usePokerSounds';
 import { initAudio } from '../lib/audio';
 import clsx from 'clsx';
@@ -61,7 +63,7 @@ function getSeatLayouts(count: number): SeatLayout[] {
 }
 
 export default function PokerTable() {
-  const { gameState, user, performAction, isHost, startNewHand, forceEndGame, buyIn } = useGameStore();
+  const { gameState, user, performAction, isHost, startNewHand, forceEndGame, buyIn, chatMessages, sendChat } = useGameStore();
   const [, setTick] = useState(0);
 
   usePokerSounds(gameState, user?.id);
@@ -77,6 +79,22 @@ export default function PokerTable() {
     return () => clearInterval(interval);
   }, [gameState?.turnDeadline]);
 
+  // ── Track phase transitions for community card animations ──
+  const prevPhaseRef = useRef<string | null>(null);
+  const [phaseTransitionKey, setPhaseTransitionKey] = useState(0);
+
+  useEffect(() => {
+    if (!gameState) return;
+    const currentPhase = gameState.phase;
+    if (prevPhaseRef.current !== currentPhase) {
+      // Phase changed — trigger animation key update
+      if (['flop', 'turn', 'river'].includes(currentPhase)) {
+        setPhaseTransitionKey(k => k + 1);
+      }
+      prevPhaseRef.current = currentPhase;
+    }
+  }, [gameState?.phase]);
+
   if (!gameState || !user) return null;
 
   const isMyTurn = gameState.currentTurn !== null && gameState.players[gameState.currentTurn]?.id === user.id;
@@ -88,7 +106,6 @@ export default function PokerTable() {
 
   const totalPot = gameState.mainPotAmount;
   const sidePots = gameState.pots.filter((p, i) => i > 0 && p.amount > 0);
-  const mainPotOnly = gameState.pots[0]?.amount ?? totalPot;
 
   const phaseLabel = (() => {
     switch(gameState.phase) {
@@ -110,11 +127,27 @@ export default function PokerTable() {
   const playerNames: Record<string, string> = {};
   gameState.players.forEach(p => { playerNames[p.id] = p.name; });
 
+  // ── Community card animation helpers ──
+  // Determine which cards are "new" in this phase transition
+  const getCardFlipDelay = (idx: number): number | undefined => {
+    if (gameState.phase === 'flop' && idx < 3) return idx * 180;
+    if (gameState.phase === 'turn' && idx === 3) return 0;
+    if (gameState.phase === 'river' && idx === 4) return 0;
+    return undefined;
+  };
+
+  const shouldFlipCard = (idx: number): boolean => {
+    if (gameState.phase === 'flop' && idx < 3) return true;
+    if (gameState.phase === 'turn' && idx === 3) return true;
+    if (gameState.phase === 'river' && idx === 4) return true;
+    return false;
+  };
+
   return (
-    <div className="relative w-full h-[calc(100vh-56px)] flex justify-center items-center overflow-hidden">
+    <div className="relative w-full h-[calc(100vh-56px)] flex justify-center items-start pt-2 overflow-hidden">
 
       {/* ── 绿色椭圆桌子 ── */}
-      <div className="table-surface relative w-[92%] max-w-[1050px] h-[55%] md:h-[65%] rounded-full">
+      <div className="table-surface relative w-[92%] max-w-[1050px] h-[50%] md:h-[58%] rounded-full mt-1">
 
         <div className="table-felt absolute inset-4 rounded-full pointer-events-none"></div>
 
@@ -151,12 +184,19 @@ export default function PokerTable() {
             )}
           </div>
 
-          {/* 公共牌 */}
+          {/* 公共牌 — 带翻牌动画 */}
           <div className="flex gap-2 sm:gap-3 pointer-events-auto">
             {[0, 1, 2, 3, 4].map(idx => (
-              <div key={idx} className="relative">
+              <div key={idx} className="relative card-flip-container">
                 {gameState.board[idx] ? (
-                  <Card card={gameState.board[idx]} size="lg" isDealt={true} />
+                  <Card
+                    card={gameState.board[idx]}
+                    size="lg"
+                    isDealt={false}
+                    flipIn={shouldFlipCard(idx)}
+                    flipDelay={getCardFlipDelay(idx)}
+                    key={shouldFlipCard(idx) ? `flip-${phaseTransitionKey}-${idx}` : `static-${idx}`}
+                  />
                 ) : (
                   <div className="w-[72px] h-[104px] sm:w-20 sm:h-28 rounded-lg border border-white/[0.04] bg-white/[0.02]" />
                 )}
@@ -197,11 +237,19 @@ export default function PokerTable() {
                   isShowdown={isShowdown}
                   turnDeadline={index === gameState.currentTurn ? gameState.turnDeadline : null}
                   position={layout.position}
+                  playerIndex={shiftedIdx}
                 />
              </div>
            );
         })}
       </div>
+
+      {/* ── 自己的牌型显示 ── */}
+      {me && me.cards.length === 2 && gameState.board.length >= 3 && gameState.phase !== 'waiting' && (
+        <div className="absolute bottom-[140px] left-1/2 -translate-x-1/2 z-25 pointer-events-none">
+          <HandRankDisplay myCards={me.cards} board={gameState.board} />
+        </div>
+      )}
 
       {/* ── Showdown 结果面板 ── */}
       {isShowdown && gameState.showdownResult && !gameState.gameEnded && (
@@ -247,9 +295,9 @@ export default function PokerTable() {
         </div>
       )}
 
-      {/* ── 下注操作栏 ── */}
+      {/* ── 下注操作栏 — 桌子下方居中 ── */}
       {isMyTurn && me?.status === 'playing' && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 animate-slide-up w-full max-w-[820px] px-4">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 animate-slide-up w-full max-w-[820px] px-4">
           <div className="action-bar flex items-center justify-center px-5 py-3 rounded-2xl">
             <BettingControls
               me={me}
@@ -285,6 +333,13 @@ export default function PokerTable() {
         isHost={isHost}
         onForceEnd={forceEndGame}
         onBuyIn={buyIn}
+      />
+
+      {/* ── 聊天室 ── */}
+      <ChatRoom
+        messages={chatMessages}
+        onSend={sendChat}
+        currentUserId={user.id}
       />
     </div>
   );

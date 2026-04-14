@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { GameStateEngine } from '../game/GameStateEngine';
 import { GameState, Action, RoomMode } from '../game/types';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { ChatMessage } from '../components/ChatRoom';
 
 export interface RoomConfig {
   id: string;
@@ -31,6 +32,7 @@ interface StoreState {
   channel: RealtimeChannel | null;
   globalLobbyChannel: RealtimeChannel | null;
   isHost: boolean;
+  chatMessages: ChatMessage[];
 
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
   _actionTimer: ReturnType<typeof setInterval> | null;
@@ -46,6 +48,7 @@ interface StoreState {
   startNewHand: () => void;
   forceEndGame: () => void;
   buyIn: () => void;
+  sendChat: (content: string, type: 'text' | 'emoji' | 'phrase') => void;
 
   redeemCode: (code: string) => Promise<string>;
 }
@@ -58,6 +61,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
   channel: null,
   globalLobbyChannel: null,
   isHost: false,
+  chatMessages: [],
   _heartbeatTimer: null,
   _actionTimer: null,
   _autoStartTimer: null,
@@ -409,6 +413,13 @@ export const useGameStore = create<StoreState>((set, get) => ({
           set({ gameState: updated });
         }
       })
+      .on('broadcast', { event: 'CHAT_MSG' }, ({ payload }) => {
+        const me = get().user;
+        // Don't duplicate own messages (already added locally)
+        if (payload.senderId === me?.id) return;
+        const msgs = get().chatMessages;
+        set({ chatMessages: [...msgs.slice(-49), payload as ChatMessage] });
+      })
       .subscribe((status) => {
          if (status === 'SUBSCRIBED') {
             console.log("已连接到房间:", room.id);
@@ -477,6 +488,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
 
     set({
       currentRoom: null, engine: null, gameState: null, channel: null, globalLobbyChannel: null, isHost: false,
+      chatMessages: [],
       _heartbeatTimer: null, _actionTimer: null, _autoStartTimer: null
     });
   },
@@ -581,6 +593,26 @@ export const useGameStore = create<StoreState>((set, get) => ({
     } else {
       channel.send({ type: 'broadcast', event: 'BUY_IN_INTENT', payload: { userId: user.id } });
     }
+  },
+
+  sendChat: (content: string, type: 'text' | 'emoji' | 'phrase') => {
+    const { user, channel, chatMessages } = get();
+    if (!user || !channel) return;
+
+    const msg: ChatMessage = {
+      id: `${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: user.id,
+      senderName: user.name,
+      content,
+      type,
+      timestamp: Date.now(),
+    };
+
+    // Add locally immediately
+    set({ chatMessages: [...chatMessages.slice(-49), msg] });
+
+    // Broadcast to room
+    channel.send({ type: 'broadcast', event: 'CHAT_MSG', payload: msg });
   },
 
   redeemCode: async (code: string) => {

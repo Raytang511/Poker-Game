@@ -167,3 +167,111 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 8px rgba(52,211,153,0.5);
   border: 2px solid rgba(255,255,255,0.2);
 }
+
+/* ─── Card Deal Animation (staggered) ─── */
+@keyframes card-deal-in {
+  0% {
+    opacity: 0;
+    transform: translate(var(--deal-from-x, 0px), var(--deal-from-y, -80px)) scale(0.3) rotate(var(--deal-rotate, -15deg));
+  }
+  60% {
+    opacity: 1;
+    transform: translate(0, 2px) scale(1.04) rotate(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+}
+
+.animate-card-deal {
+  animation: card-deal-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  animation-delay: var(--deal-delay, 0ms);
+  opacity: 0;
+}
+
+/* ─── 3D Card Flip (for community cards) ─── */
+.card-flip-container {
+  perspective: 600px;
+}
+
+@keyframes card-flip-in {
+  0% {
+    transform: rotateY(90deg) scale(0.85);
+    opacity: 0;
+  }
+  50% {
+    transform: rotateY(-8deg) scale(1.03);
+    opacity: 1;
+  }
+  70% {
+    transform: rotateY(3deg) scale(1.01);
+  }
+  100% {
+    transform: rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-card-flip {
+  animation: card-flip-in 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation-delay: var(--flip-delay, 0ms);
+  opacity: 0;
+  transform-style: preserve-3d;
+}
+
+/* ─── Hand Rank Display ─── */
+@keyframes hand-rank-in {
+  0% { opacity: 0; transform: translateY(6px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes hand-rank-glow {
+  0%, 100% { text-shadow: 0 0 4px rgba(52, 211, 153, 0.3); }
+  50% { text-shadow: 0 0 12px rgba(52, 211, 153, 0.6), 0 0 20px rgba(52, 211, 153, 0.2); }
+}
+
+.animate-hand-rank {
+  animation: hand-rank-in 0.4s ease-out forwards;
+}
+
+.hand-rank-glow {
+  animation: hand-rank-glow 2s ease-in-out infinite;
+}
+
+/* ─── Chat Room ─── */
+.chat-panel {
+  background: rgba(8, 12, 24, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.chat-panel::-webkit-scrollbar {
+  width: 3px;
+}
+.chat-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-panel::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 99px;
+}
+
+@keyframes chat-msg-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-chat-msg {
+  animation: chat-msg-in 0.25s ease-out forwards;
+}
+
+@keyframes chat-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+.chat-badge-pulse {
+  animation: chat-badge-pulse 0.6s ease-in-out;
+}

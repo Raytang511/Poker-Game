@@ -7,6 +7,12 @@ interface CardProps {
   className?: string;
   isDealt?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  /** Staggered deal delay in ms (triggers deal-in animation) */
+  dealDelay?: number;
+  /** Triggers a 3D flip-in animation (for community cards) */
+  flipIn?: boolean;
+  /** Flip animation delay in ms */
+  flipDelay?: number;
 }
 
 const sizeMap = {
@@ -21,7 +27,7 @@ const fontSizeMap = {
   lg: { rank: 'text-lg', suit: 'text-sm', center: 'text-6xl' },
 };
 
-export default function Card({ card, className, isDealt = true, size = 'lg' }: CardProps) {
+export default function Card({ card, className, isDealt = true, size = 'lg', dealDelay, flipIn, flipDelay }: CardProps) {
   const isRed = card?.suit === 'hearts' || card?.suit === 'diamonds';
   
   const getSuitIcon = (suit: string) => {
@@ -43,14 +49,35 @@ export default function Card({ card, className, isDealt = true, size = 'lg' }: C
   const sizes = sizeMap[size];
   const fonts = fontSizeMap[size];
 
+  // Determine animation class
+  const hasDealDelay = dealDelay !== undefined && dealDelay >= 0;
+  const animClass = flipIn
+    ? 'animate-card-flip'
+    : hasDealDelay
+      ? 'animate-card-deal'
+      : isDealt
+        ? 'animate-deal'
+        : '';
+
+  // CSS custom properties for animation delays
+  const animStyle: React.CSSProperties = {};
+  if (hasDealDelay) {
+    (animStyle as any)['--deal-delay'] = `${dealDelay}ms`;
+  }
+  if (flipIn && flipDelay !== undefined) {
+    (animStyle as any)['--flip-delay'] = `${flipDelay}ms`;
+  }
+
   return (
-    <div 
+    <div
       className={clsx(
         "relative rounded-lg select-none playing-card flex-shrink-0",
         sizes,
-        isDealt ? "animate-deal" : "",
+        animClass,
+        flipIn && "card-flip-container",
         className
       )}
+      style={animStyle}
     >
       {card ? (
         // Face up card

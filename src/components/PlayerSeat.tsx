@@ -11,9 +11,10 @@ interface SeatProps {
   isShowdown?: boolean;
   turnDeadline?: number | null;
   position: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  playerIndex?: number;
 }
 
-export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown, turnDeadline, position }: SeatProps) {
+export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown, turnDeadline, position, playerIndex }: SeatProps) {
   const myId = useGameStore(state => state.user?.id);
   const isMe = player.id === myId;
   const isActive = player.status === 'playing' || player.status === 'all_in';
@@ -75,7 +76,7 @@ export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown,
       {/* 手牌 - 顶部玩家牌在上方，底部玩家牌在下方 */}
       {isActive && isTop && (
         <div className="flex gap-1 mb-1">
-          {renderCards(player, showRealCards)}
+          {renderCards(player, showRealCards, playerIndex)}
         </div>
       )}
 
@@ -128,26 +129,28 @@ export default function PlayerSeat({ player, isDealer, isActiveTurn, isShowdown,
       {/* 手牌 - 底部玩家 */}
       {isActive && !isTop && (
         <div className="flex gap-1 mt-1">
-          {renderCards(player, showRealCards)}
+          {renderCards(player, showRealCards, playerIndex)}
         </div>
       )}
     </div>
   );
 }
 
-function renderCards(player: Player, showReal: boolean) {
+function renderCards(player: Player, showReal: boolean, playerIndex?: number) {
+  // Stagger delay: each player's cards are offset by their index
+  const baseDelay = (playerIndex ?? 0) * 200;
   if (player.cards.length === 2 && showReal) {
     return (
       <>
-        <Card card={player.cards[0]} size="md" className="rotate-[-4deg]" isDealt={false} />
-        <Card card={player.cards[1]} size="md" className="rotate-[4deg] -ml-3" isDealt={false} />
+        <Card card={player.cards[0]} size="md" className="rotate-[-4deg]" isDealt={false} dealDelay={baseDelay} />
+        <Card card={player.cards[1]} size="md" className="rotate-[4deg] -ml-3" isDealt={false} dealDelay={baseDelay + 120} />
       </>
     );
   }
   return (
     <>
-      <Card size="md" className="rotate-[-4deg]" />
-      <Card size="md" className="rotate-[4deg] -ml-3" />
+      <Card size="md" className="rotate-[-4deg]" dealDelay={baseDelay} />
+      <Card size="md" className="rotate-[4deg] -ml-3" dealDelay={baseDelay + 120} />
     </>
   );
 }
