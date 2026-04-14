@@ -29,8 +29,10 @@ export default function RoomCreationModal({ onClose, onJoin }: RoomCreationModal
   const [roomName, setRoomName] = useState('我的房间');
   const [sbIdx, setSbIdx] = useState(0);
   const [startingChips, setStartingChips] = useState(10000);
-  const [customChips, setCustomChips] = useState('');
+  const [customChips, setCustomChips] = useState("");
   const [step, setStep] = useState<'mode' | 'config'>('mode');
+  const [isEncrypted, setIsEncrypted] = useState(false);
+  const [password, setPassword] = useState('');
 
   const selectedBlinds = BLIND_PRESETS[sbIdx];
 
@@ -45,6 +47,9 @@ export default function RoomCreationModal({ onClose, onJoin }: RoomCreationModal
       mode,
       startingChips: isNaN(chips) ? startingChips : chips,
     };
+    if (isEncrypted && password) {
+      room.password = password;
+    }
     onJoin(room);
     onClose();
   }
@@ -175,6 +180,26 @@ export default function RoomCreationModal({ onClose, onJoin }: RoomCreationModal
                   min={selectedBlinds.bb * 10}
                   className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                 />
+              </div>
+            )}
+
+            {/* 是否加密 */}
+            <div className="flex items-center justify-between bg-black/30 border border-white/5 rounded-lg px-3 py-2 cursor-pointer" onClick={() => setIsEncrypted(!isEncrypted)}>
+              <label className="text-gray-300 text-xs flex-1 cursor-pointer">加密房间 (需要密码)</label>
+              <div className={clsx("w-8 h-4 rounded-full transition-colors relative", isEncrypted ? 'bg-emerald-500' : 'bg-gray-600')}>
+                <div className={clsx("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", isEncrypted ? 'left-4' : 'left-0.5')} />
+              </div>
+            </div>
+
+            {isEncrypted && (
+              <div className="animate-slide-up">
+                 <input
+                   type="text"
+                   value={password}
+                   onChange={e => setPassword(e.target.value)}
+                   placeholder="输入房间密码..."
+                   className="w-full bg-black/50 border border-emerald-500/30 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                 />
               </div>
             )}
 

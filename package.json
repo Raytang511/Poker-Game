@@ -9,13 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/supabase-js": "^2.103.0",
+    "clsx": "^2.1.0",
     "lucide-react": "^0.300.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "zustand": "^4.4.7",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.0"
+    "tailwind-merge": "^2.2.0",
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

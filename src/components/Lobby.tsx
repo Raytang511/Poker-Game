@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGameStore, RoomConfig } from '../store/useGameStore';
+import { supabase } from '../lib/supabase';
 import AuthWidget from './AuthWidget';
 import RoomCreationModal from './RoomCreationModal';
 import clsx from 'clsx';
@@ -28,8 +29,53 @@ export default function Lobby() {
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  
+  const [activeCustomRooms, setActiveCustomRooms] = useState<RoomConfig[]>([]);
+  const [passwordPromptRoom, setPasswordPromptRoom] = useState<RoomConfig | null>(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  useEffect(() => {
+    const lobbyChannel = supabase.channel('poker_lobby');
+    lobbyChannel.on('presence', { event: 'sync' }, () => {
+      const state = lobbyChannel.presenceState();
+      const rooms: RoomConfig[] = [];
+      Object.keys(state).forEach(key => {
+        state[key].forEach((presence: any) => {
+          if (presence.type === 'host_room' && presence.room) {
+            if (!rooms.find(r => r.id === presence.room.id)) {
+               rooms.push(presence.room);
+            }
+          }
+        });
+      });
+      setActiveCustomRooms(rooms);
+    });
+    lobbyChannel.subscribe();
+    return () => { lobbyChannel.unsubscribe(); };
+  }, []);
 
   if (!user) return <AuthWidget />;
+
+  const handleRoomClick = (room: RoomConfig) => {
+    if (room.password) {
+      setPasswordPromptRoom(room);
+      setPasswordInput('');
+      setPasswordError('');
+    } else {
+      joinRoom(room);
+    }
+  };
+
+  const handlePasswordSubmit = () => {
+    if (!passwordPromptRoom) return;
+    if (passwordInput === passwordPromptRoom.password) {
+      joinRoom(passwordPromptRoom);
+      setPasswordPromptRoom(null);
+    } else {
+      setPasswordError('密码错误！');
+    }
+  };
 
   // 通过房间码加入（支持预设 + 自定义）
   const handleJoinByCode = () => {
@@ -39,7 +85,14 @@ export default function Lobby() {
     // 先查预设房间
     const preset = PRESET_ROOMS.find(r => r.id === code || r.id === joinCode.trim());
     if (preset) {
-      joinRoom(preset);
+      handleRoomClick(preset);
+      return;
+    }
+    
+    // 查活动中的自定义房间
+    const activeCustom = activeCustomRooms.find(r => r.id === code || r.id === joinCode.trim());
+    if (activeCustom) {
+      handleRoomClick(activeCustom);
       return;
     }
 
@@ -108,7 +161,7 @@ export default function Lobby() {
           {PRESET_ROOMS.map(room => (
             <button
               key={room.id}
-              onClick={() => joinRoom(room)}
+              onClick={() => handleRoomClick(room)}
               className="glass-panel p-5 rounded-2xl flex flex-col items-center text-center hover:-translate-y-1 transition-all border border-white/[0.06] hover:border-emerald-500/40 group relative overflow-hidden"
             >
               <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -129,6 +182,38 @@ export default function Lobby() {
           ))}
         </div>
       </div>
+      
+      {/* ── 自定义房间 ── */}
+      {activeCustomRooms.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest">自定义房间</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {activeCustomRooms.map(room => (
+              <button
+                key={room.id}
+                onClick={() => handleRoomClick(room)}
+                className="glass-panel p-5 rounded-2xl flex flex-col items-center text-center hover:-translate-y-1 transition-all border border-white/[0.06] hover:border-emerald-500/40 group relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                <span className="text-2xl mb-3">{ROOM_EMOJI[room.type] || '⚙️'} {room.password && <span className="text-sm ml-1 opacity-70">🔒</span>}</span>
+                <p className="font-bold text-sm text-white group-hover:text-emerald-300 transition-colors">{room.name}</p>
+                <p className="text-gray-600 text-xs mt-1">
+                  SB ${room.sb} / BB ${room.bb}
+                </p>
+
+                <div className="mt-3 px-2.5 py-1 rounded-full bg-black/40 border border-white/[0.06] group-hover:border-emerald-500/20 transition-colors">
+                  <span className="font-mono text-[10px] text-gray-500 tracking-widest group-hover:text-emerald-500/70 transition-colors">
+                    #{displayCode(room.id)}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── 竞技/无限注说明 ── */}
       <div className="grid grid-cols-2 gap-3">
@@ -154,6 +239,33 @@ export default function Lobby() {
           onClose={() => setShowCreate(false)}
           onJoin={joinRoom}
         />
+      )}
+
+      {/* 密码输入弹窗 */}
+      {passwordPromptRoom && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="glass-panel rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-white/10 relative">
+             <button onClick={() => setPasswordPromptRoom(null)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-200">✕</button>
+             <h2 className="font-bold text-white mb-2 tracking-wide text-center">输入房间密码</h2>
+             <p className="text-gray-500 text-xs mb-4 text-center">加入 {passwordPromptRoom.name}</p>
+             <input
+               type="password"
+               value={passwordInput}
+               onChange={e => setPasswordInput(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && handlePasswordSubmit()}
+               autoFocus
+               placeholder="输入密码"
+               className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-emerald-500 text-center mb-4 transition-colors"
+             />
+             {passwordError && <p className="text-red-400 text-xs text-center mb-4">{passwordError}</p>}
+             <button
+               onClick={handlePasswordSubmit}
+               className="w-full py-3 rounded-xl font-bold bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white transition-all uppercase tracking-widest text-sm"
+             >
+               进入房间
+             </button>
+           </div>
+        </div>
       )}
     </div>
   );

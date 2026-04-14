@@ -2,14 +2,20 @@ import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useGameStore } from '../store/useGameStore';
 
-// 检测 Supabase 是否真正配置好（非默认占位符）
+// 检测 Supabase 是否真正配置好
+// 排除：未填写的默认值 / key 中含有明显占位符（NAME、YOUR、xxx 等）
 const isSupabaseConfigured = (() => {
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  return (
-    !!url && !url.includes('your-project') &&
-    !!key && !key.includes('your-anon-key')
-  );
+  if (!url || !key) return false;
+  if (url.includes('your-project')) return false;
+  if (key.includes('your-anon-key')) return false;
+  // 新格式 sb_publishable_ 检测：key 部分不能含明显占位词
+  const keyBody = key.replace(/^sb_publishable_/, '').replace(/^eyJ.*/, '__jwt__');
+  const hasPlaceholder = /NAME|YOUR|XXXX|PLACEHOLDER|example/i.test(keyBody);
+  if (hasPlaceholder) return false;
+  // 最短有效长度：Supabase key 不会短于 20 字符
+  return key.length >= 20;
 })();
 
 // 带超时的 Promise 包装，防止网络挂起导致 loading 永不结束

@@ -12,6 +12,7 @@ export interface RoomConfig {
   bb: number;
   mode: RoomMode;           // casual | competitive | unlimited
   startingChips: number;    // 初始筹码量
+  password?: string;        // 房间密码
 }
 
 const AUTO_START_DELAY_MS = 3000;
@@ -28,6 +29,7 @@ interface StoreState {
   gameState: GameState | null;
   engine: GameStateEngine | null;
   channel: RealtimeChannel | null;
+  globalLobbyChannel: RealtimeChannel | null;
   isHost: boolean;
 
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -54,6 +56,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
   gameState: null,
   engine: null,
   channel: null,
+  globalLobbyChannel: null,
   isHost: false,
   _heartbeatTimer: null,
   _actionTimer: null,
@@ -65,33 +68,71 @@ export const useGameStore = create<StoreState>((set, get) => ({
      if ((window as any)._authInitialized) return;
      (window as any)._authInitialized = true;
 
-     supabase.auth.onAuthStateChange(async (event, session) => {
-        if (session?.user) {
-           try {
-              const { data, error } = await supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
-              if (error) console.error("Profile load issue:", error);
+     // ── 辅助函数：从 session 加载用户 profile ──
+     async function loadUserFromSession(session: any) {
+       if (!session?.user) {
+         useGameStore.setState({ user: null });
+         return;
+       }
+       try {
+         const { data, error } = await supabase.from('profiles').select('username, chips').eq('id', session.user.id).single();
+         if (error) console.error("[Auth] Profile load issue:", error);
 
-              set({
-                user: {
-                  id: session.user.id,
-                  name: data?.username || session.user.email?.split('@')[0] || 'Player',
-                  chips: data?.chips || 1000
-                }
-              });
-           } catch(err) {
-              console.error("Failed to load profile", err);
-              set({
-                user: {
-                  id: session.user.id,
-                  name: session.user.email?.split('@')[0] || 'Player',
-                  chips: 1000
-                }
-              });
+         useGameStore.setState({
+           user: {
+             id: session.user.id,
+             name: data?.username || session.user.email?.split('@')[0] || 'Player',
+             chips: data?.chips || 1000
            }
-        } else {
-           set({ user: null });
-        }
+         });
+       } catch(err) {
+         console.error("[Auth] Failed to load profile", err);
+         useGameStore.setState({
+           user: {
+             id: session.user.id,
+             name: session.user.email?.split('@')[0] || 'Player',
+             chips: 1000
+           }
+         });
+       }
+     }
+
+     // ── 1. 主动获取当前 session（不依赖事件） ──
+     // 这是最可靠的方式：如果 localStorage 中有有效 session，直接恢复
+     supabase.auth.getSession().then(({ data: { session }, error }) => {
+       if (error) {
+         console.error("[Auth] getSession failed, forcing reset:", error);
+         // session 损坏，强制清除并从干净状态开始
+         supabase.auth.signOut().catch(() => {});
+         useGameStore.setState({ user: null });
+         return;
+       }
+       if (session) {
+         console.log("[Auth] 已恢复 session:", session.user.id);
+         loadUserFromSession(session);
+       } else {
+         console.log("[Auth] 无活跃 session，等待用户登录");
+         useGameStore.setState({ user: null });
+       }
+     }).catch(err => {
+       console.error("[Auth] getSession 异常:", err);
+       useGameStore.setState({ user: null });
      });
+
+     // ── 2. 监听后续 auth 状态变化（登录/登出/token 刷新） ──
+     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+       console.log("[Auth] 状态变化:", event);
+       if (event === 'SIGNED_OUT') {
+         useGameStore.setState({ user: null });
+         return;
+       }
+       if (session?.user) {
+         await loadUserFromSession(session);
+       }
+     });
+
+     // 保存 unsubscribe 引用，以备需要清理
+     (window as any)._authSubscription = subscription;
   },
 
   loginLocalMock: (name) => {
@@ -109,7 +150,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
     if (prev.channel) prev.channel.unsubscribe();
 
     set({
-      currentRoom: room, gameState: null, engine: null, channel: null, isHost: false,
+      currentRoom: room, gameState: null, engine: null, channel: null, globalLobbyChannel: null, isHost: false,
       _heartbeatTimer: null, _actionTimer: null, _autoStartTimer: null,
       _lastHostUpdate: 0, _onlinePlayers: new Set([user.id])
     });
@@ -189,8 +230,18 @@ export const useGameStore = create<StoreState>((set, get) => ({
           }
         }
       }, ACTION_CHECK_INTERVAL_MS);
+      
+      let lobbyCh = null;
+      if (room.type === 'custom') {
+        lobbyCh = supabase.channel('poker_lobby');
+        lobbyCh.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await lobbyCh!.track({ type: 'host_room', room });
+          }
+        });
+      }
 
-      set({ isHost: true, engine, gameState: engine.getState(), _actionTimer: actionTimer });
+      set({ isHost: true, engine, gameState: engine.getState(), _actionTimer: actionTimer, globalLobbyChannel: lobbyCh });
       broadcastStateToAll();
     }
 
@@ -218,8 +269,18 @@ export const useGameStore = create<StoreState>((set, get) => ({
           }
         }
       }, ACTION_CHECK_INTERVAL_MS);
+      
+      let lobbyCh = null;
+      if (room.type === 'custom') {
+        lobbyCh = supabase.channel('poker_lobby');
+        lobbyCh.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await lobbyCh!.track({ type: 'host_room', room });
+          }
+        });
+      }
 
-      set({ isHost: true, engine, gameState: engine.getState(), _actionTimer: actionTimer, _lastHostUpdate: Date.now() });
+      set({ isHost: true, engine, gameState: engine.getState(), _actionTimer: actionTimer, _lastHostUpdate: Date.now(), globalLobbyChannel: lobbyCh });
       broadcastStateToAll();
     }
 
@@ -235,8 +296,13 @@ export const useGameStore = create<StoreState>((set, get) => ({
              if (payload.hostId < (me?.id || "")) {
                  console.log("退位让给:", payload.hostId);
                  const at = get()._actionTimer;
+                 const gLobby = get().globalLobbyChannel;
                  if (at) clearInterval(at);
-                 set({ isHost: false, engine: null, _actionTimer: null });
+                 if (gLobby) {
+                   gLobby.untrack();
+                   gLobby.unsubscribe();
+                 }
+                 set({ isHost: false, engine: null, _actionTimer: null, globalLobbyChannel: null });
              } else {
                  // 我的 ID 更小，我是权威 Host，重新广播覆盖对方的状态
                  broadcastState();
@@ -393,19 +459,24 @@ export const useGameStore = create<StoreState>((set, get) => ({
   },
 
   leaveRoom: () => {
-    const { channel, user, _heartbeatTimer, _actionTimer, _autoStartTimer } = get();
+    const { channel, globalLobbyChannel, user, _heartbeatTimer, _actionTimer, _autoStartTimer } = get();
 
     if (channel && user) {
       channel.send({ type: 'broadcast', event: 'PLAYER_LEAVE', payload: { playerId: user.id } });
     }
 
     if (channel) channel.unsubscribe();
+    if (globalLobbyChannel) {
+      globalLobbyChannel.untrack();
+      globalLobbyChannel.unsubscribe();
+    }
+    
     if (_heartbeatTimer) clearInterval(_heartbeatTimer);
     if (_actionTimer) clearInterval(_actionTimer);
     if (_autoStartTimer) clearTimeout(_autoStartTimer);
 
     set({
-      currentRoom: null, engine: null, gameState: null, channel: null, isHost: false,
+      currentRoom: null, engine: null, gameState: null, channel: null, globalLobbyChannel: null, isHost: false,
       _heartbeatTimer: null, _actionTimer: null, _autoStartTimer: null
     });
   },

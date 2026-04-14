@@ -11,6 +11,15 @@ function App() {
   // 顶层初始化 Auth，确保无论哪个页面都能捕获 Supabase session
   useEffect(() => {
     initAuth();
+    return () => {
+      // StrictMode 下会 unmount→remount；清理旧 listener 以防双注册
+      const sub = (window as any)._authSubscription;
+      if (sub) {
+        sub.unsubscribe();
+        (window as any)._authSubscription = null;
+      }
+      (window as any)._authInitialized = false;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

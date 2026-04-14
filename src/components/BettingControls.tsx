@@ -137,8 +137,24 @@ export default function BettingControls({ me, pot, currentBet, bigBlind, onActio
         )}
       </div>
 
-      {/* ── 第二排：滑块 + 主操作按钮 ── */}
-      <div className="flex items-center gap-2">
+      {/* ── 第二排：滑块 + 金额显示 (居中) ── */}
+      <div className="flex items-center justify-center gap-3 w-full max-w-md mx-auto my-1 bg-white/[0.04] px-4 py-2.5 rounded-2xl border border-white/[0.06]">
+        <input
+          type="range"
+          min={minRaise}
+          max={me.chips}
+          step={Math.max(1, Math.floor(me.chips / 100))}
+          value={effectiveRaise}
+          onChange={e => { setRaiseAmount(Number(e.target.value)); setShowCustom(false); }}
+          className="flex-1"
+        />
+        <span className="font-mono text-emerald-300 text-sm font-bold whitespace-nowrap min-w-[60px] text-right">
+          ${effectiveRaise.toLocaleString()}
+        </span>
+      </div>
+
+      {/* ── 第三排：主操作按钮 ── */}
+      <div className="flex items-center justify-center gap-2 flex-wrap">
 
         {/* Fold */}
         <button
@@ -161,21 +177,7 @@ export default function BettingControls({ me, pot, currentBet, bigBlind, onActio
           {callAmount > 0 ? `Call $${callAmount.toLocaleString()}` : 'Check'}
         </button>
 
-        {/* 滑块 + 金额显示 */}
-        <div className="flex-1 flex items-center gap-2 bg-white/[0.04] px-3 py-2 rounded-xl border border-white/[0.06]">
-          <input
-            type="range"
-            min={minRaise}
-            max={me.chips}
-            step={Math.max(1, Math.floor(me.chips / 100))}
-            value={effectiveRaise}
-            onChange={e => { setRaiseAmount(Number(e.target.value)); setShowCustom(false); }}
-            className="flex-1 min-w-[80px]"
-          />
-          <span className="font-mono text-emerald-300 text-xs font-bold whitespace-nowrap min-w-[52px] text-right">
-            ${effectiveRaise.toLocaleString()}
-          </span>
-        </div>
+
 
         {/* Raise / Bet */}
         <button
